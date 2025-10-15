@@ -2,14 +2,14 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Certificar Documento en Blockchain</title>
+  <title>Certificar Documento en Blockchain (Sepolia)</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.min.js"></script>
 </head>
 <body>
   <h1>Certificar Documento en Blockchain (Sepolia)</h1>
 
   <button id="connectBtn">Conectar MetaMask</button>
-  <p id="status"></p>
+  <p id="status">MetaMask no conectada.</p>
 
   <hr>
 
@@ -19,7 +19,7 @@
   <p id="txResult"></p>
 
   <script>
-    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
+    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS"; // reemplaza esto con la dirección de tu contrato
     const ABI = [
       "function registerDocument(bytes32 docHash) public",
       "function isRegistered(bytes32 docHash) public view returns (bool)"
@@ -27,18 +27,34 @@
 
     let provider, signer, contract;
 
-    // Conexión a MetaMask
+    // Detectar MetaMask
     async function connect() {
-      if (!window.ethereum) {
-        alert("Por favor instala MetaMask");
+      console.log("Intentando conectar MetaMask...");
+      if (typeof window.ethereum === 'undefined') {
+        alert("Por favor instala MetaMask desde https://metamask.io");
+        document.getElementById("status").innerText = "⚠️ MetaMask no detectada.";
         return;
       }
-      provider = new ethers.BrowserProvider(window.ethereum);
-      await provider.send("eth_requestAccounts", []);
-      signer = await provider.getSigner();
-      const address = await signer.getAddress();
-      document.getElementById("status").innerText = "Conectado: " + address;
-      contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+      try {
+        // Pedir permisos para acceder a la cuenta
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+        // Crear proveedor y firmante
+        provider = new ethers.BrowserProvider(window.ethereum);
+        signer = await provider.getSigner();
+        const address = await signer.getAddress();
+
+        // Mostrar conexión
+        document.getElementById("status").innerText = "✅ Conectado como: " + address;
+        console.log("Conectado:", address);
+
+        // Inicializar contrato
+        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+      } catch (err) {
+        console.error("Error conectando a MetaMask:", err);
+        document.getElementById("status").innerText = "❌ Error al conectar MetaMask.";
+      }
     }
 
     // Calcular hash del archivo (SHA-256)
@@ -52,25 +68,37 @@
 
     // Registrar documento
     async function registerDocument() {
+      if (!contract) {
+        alert("Primero conecta MetaMask");
+        return;
+      }
+
       const file = document.getElementById("fileInput").files[0];
       if (!file) {
         alert("Selecciona un archivo primero");
         return;
       }
+
       const hash = await hashFile(file);
       document.getElementById("hash").innerText = "Hash del documento: " + hash;
 
-      const exists = await contract.isRegistered(hash);
-      if (exists) {
-        document.getElementById("txResult").innerText = "⚠️ Documento ya registrado en la blockchain.";
-        return;
+      try {
+        const exists = await contract.isRegistered(hash);
+        if (exists) {
+          document.getElementById("txResult").innerText = "⚠️ Documento ya registrado.";
+          return;
+        }
+
+        const tx = await contract.registerDocument(hash);
+        document.getElementById("txResult").innerText = "⏳ Enviando transacción... " + tx.hash;
+        await tx.wait();
+
+        document.getElementById("txResult").innerText =
+          "✅ Documento registrado con éxito. Tx: " + tx.hash;
+      } catch (error) {
+        console.error("Error en la transacción:", error);
+        document.getElementById("txResult").innerText = "❌ Error al registrar el documento.";
       }
-
-      const tx = await contract.registerDocument(hash);
-      document.getElementById("txResult").innerText = "⏳ Enviando transacción... " + tx.hash;
-
-      await tx.wait();
-      document.getElementById("txResult").innerText = "✅ Documento registrado con éxito. Tx: " + tx.hash;
     }
 
     document.getElementById("connectBtn").onclick = connect;
