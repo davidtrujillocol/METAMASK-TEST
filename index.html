@@ -2,11 +2,11 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Certificar Documento en Blockchain (Sepolia)</title>
+  <title>Certificar Documento en Blockchain</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.min.js"></script>
 </head>
 <body>
-  <h1>Certificar Documento en Blockchain (Sepolia)</h1>
+  <h1>Certificar Documento en Blockchain</h1>
 
   <button id="connectBtn">Conectar MetaMask</button>
   <p id="status">MetaMask no conectada.</p>
@@ -19,7 +19,7 @@
   <p id="txResult"></p>
 
   <script>
-    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS"; // reemplaza esto con la dirección de tu contrato
+    const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000"; // reemplaza con tu contrato real
     const ABI = [
       "function registerDocument(bytes32 docHash) public",
       "function isRegistered(bytes32 docHash) public view returns (bool)"
@@ -27,49 +27,46 @@
 
     let provider, signer, contract;
 
-    // Detectar MetaMask
     async function connect() {
-      console.log("Intentando conectar MetaMask...");
-      if (typeof window.ethereum === 'undefined') {
-        alert("Por favor instala MetaMask desde https://metamask.io");
-        document.getElementById("status").innerText = "⚠️ MetaMask no detectada.";
-        return;
-      }
-
+      const status = document.getElementById("status");
       try {
-        // Pedir permisos para acceder a la cuenta
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
+        if (typeof window.ethereum === 'undefined') {
+          status.innerText = "⚠️ MetaMask no detectada. Instálala desde https://metamask.io/";
+          return;
+        }
 
-        // Crear proveedor y firmante
+        console.log("🔗 Detectando MetaMask...");
+        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+        console.log("✅ Cuentas detectadas:", accounts);
+
         provider = new ethers.BrowserProvider(window.ethereum);
         signer = await provider.getSigner();
         const address = await signer.getAddress();
+        console.log("🧾 Conectado como:", address);
 
-        // Mostrar conexión
-        document.getElementById("status").innerText = "✅ Conectado como: " + address;
-        console.log("Conectado:", address);
+        status.innerText = "✅ Conectado como: " + address;
 
-        // Inicializar contrato
-        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+        // Crear contrato solo si hay dirección real
+        if (CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000") {
+          contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+        }
       } catch (err) {
-        console.error("Error conectando a MetaMask:", err);
-        document.getElementById("status").innerText = "❌ Error al conectar MetaMask.";
+        console.error("🚫 Error al conectar MetaMask:", err);
+        status.innerText = "❌ Error al conectar MetaMask. Revisa la consola (F12).";
       }
     }
 
-    // Calcular hash del archivo (SHA-256)
     async function hashFile(file) {
       const arrayBuffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = '0x' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      const hashHex = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
       return hashHex;
     }
 
-    // Registrar documento
     async function registerDocument() {
       if (!contract) {
-        alert("Primero conecta MetaMask");
+        alert("Primero conecta MetaMask correctamente y configura la dirección del contrato.");
         return;
       }
 
@@ -92,11 +89,9 @@
         const tx = await contract.registerDocument(hash);
         document.getElementById("txResult").innerText = "⏳ Enviando transacción... " + tx.hash;
         await tx.wait();
-
-        document.getElementById("txResult").innerText =
-          "✅ Documento registrado con éxito. Tx: " + tx.hash;
+        document.getElementById("txResult").innerText = "✅ Documento registrado con éxito. Tx: " + tx.hash;
       } catch (error) {
-        console.error("Error en la transacción:", error);
+        console.error("🚫 Error al registrar:", error);
         document.getElementById("txResult").innerText = "❌ Error al registrar el documento.";
       }
     }
