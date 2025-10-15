@@ -2,52 +2,79 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Validar Documento en Blockchain</title>
+  <title>Certificar Documento en Blockchain</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.min.js"></script>
 </head>
 <body>
-  <h1>Validar Documento en Blockchain</h1>
+  <h1>Certificar Documento en Blockchain (Sepolia)</h1>
 
-  <button id="connectButton">Conectar MetaMask</button>
-  <div id="status"></div>
+  <button id="connectBtn">Conectar MetaMask</button>
+  <p id="status"></p>
 
-  <script type="module">
-    async function connectMetaMask() {
-      if (typeof window.ethereum === 'undefined') {
-        document.getElementById("status").innerText = "MetaMask no está instalada.";
-        alert("Por favor, instala MetaMask desde https://metamask.io/");
+  <hr>
+
+  <input type="file" id="fileInput" />
+  <button id="registerBtn">Registrar Documento</button>
+  <p id="hash"></p>
+  <p id="txResult"></p>
+
+  <script>
+    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
+    const ABI = [
+      "function registerDocument(bytes32 docHash) public",
+      "function isRegistered(bytes32 docHash) public view returns (bool)"
+    ];
+
+    let provider, signer, contract;
+
+    // Conexión a MetaMask
+    async function connect() {
+      if (!window.ethereum) {
+        alert("Por favor instala MetaMask");
+        return;
+      }
+      provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      document.getElementById("status").innerText = "Conectado: " + address;
+      contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+    }
+
+    // Calcular hash del archivo (SHA-256)
+    async function hashFile(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = '0x' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return hashHex;
+    }
+
+    // Registrar documento
+    async function registerDocument() {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file) {
+        alert("Selecciona un archivo primero");
+        return;
+      }
+      const hash = await hashFile(file);
+      document.getElementById("hash").innerText = "Hash del documento: " + hash;
+
+      const exists = await contract.isRegistered(hash);
+      if (exists) {
+        document.getElementById("txResult").innerText = "⚠️ Documento ya registrado en la blockchain.";
         return;
       }
 
-      try {
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const account = accounts[0];
-        document.getElementById("status").innerText = "Conectado como: " + account;
-      } catch (err) {
-        document.getElementById("status").innerText = "Conexión cancelada.";
-      }
+      const tx = await contract.registerDocument(hash);
+      document.getElementById("txResult").innerText = "⏳ Enviando transacción... " + tx.hash;
+
+      await tx.wait();
+      document.getElementById("txResult").innerText = "✅ Documento registrado con éxito. Tx: " + tx.hash;
     }
 
-    document.getElementById("connectButton").addEventListener("click", connectMetaMask);
+    document.getElementById("connectBtn").onclick = connect;
+    document.getElementById("registerBtn").onclick = registerDocument;
   </script>
-  // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract DocumentRegistry {
-    mapping(bytes32 => bool) public registeredDocuments;
-
-    event DocumentRegistered(bytes32 indexed docHash, address indexed owner);
-
-    function registerDocument(bytes32 docHash) public {
-        require(!registeredDocuments[docHash], "Documento ya registrado");
-        registeredDocuments[docHash] = true;
-        emit DocumentRegistered(docHash, msg.sender);
-    }
-
-    function isRegistered(bytes32 docHash) public view returns (bool) {
-        return registeredDocuments[docHash];
-    }
-}
-
 </body>
 </html>
