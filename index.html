@@ -1,103 +1,41 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <title>Certificar Documento en Blockchain</title>
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.min.js"></script>
+  <meta charset="UTF-8">
+  <title>Certificación en Blockchain</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin-top: 60px; background: #f0f4f9; }
+    button { padding: 10px 20px; border: none; border-radius: 8px; background: #007bff; color: white; cursor: pointer; font-size: 16px; }
+    #status { margin-top: 20px; font-weight: bold; }
+  </style>
 </head>
 <body>
-  <h1>Certificar Documento en Blockchain</h1>
-
+  <h2>🔐 Validar y Guardar Documento en Blockchain</h2>
   <button id="connectBtn">Conectar MetaMask</button>
-  <p id="status">MetaMask no conectada.</p>
+  <p id="status">Esperando conexión...</p>
 
-  <hr>
-
-  <input type="file" id="fileInput" />
-  <button id="registerBtn">Registrar Documento</button>
-  <p id="hash"></p>
-  <p id="txResult"></p>
-
+  <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
   <script>
-    const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000"; // reemplaza con tu contrato real
-    const ABI = [
-      "function registerDocument(bytes32 docHash) public",
-      "function isRegistered(bytes32 docHash) public view returns (bool)"
-    ];
-
-    let provider, signer, contract;
+    const connectButton = document.getElementById("connectBtn");
+    const statusText = document.getElementById("status");
 
     async function connect() {
-      const status = document.getElementById("status");
-      try {
-        if (typeof window.ethereum === 'undefined') {
-          status.innerText = "⚠️ MetaMask no detectada. Instálala desde https://metamask.io/";
-          return;
+      console.log("🔗 Detectando MetaMask...");
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          console.log("✅ Cuentas detectadas:", accounts);
+          statusText.innerHTML = `✅ Conectado como: <b>${accounts[0]}</b>`;
+        } catch (error) {
+          console.error("🚫 Error al conectar MetaMask:", error);
+          statusText.innerHTML = "❌ Error al conectar MetaMask. Revisa la consola (F12).";
         }
-
-        console.log("🔗 Detectando MetaMask...");
-        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-        console.log("✅ Cuentas detectadas:", accounts);
-
-        provider = new ethers.BrowserProvider(window.ethereum);
-        signer = await provider.getSigner();
-        const address = await signer.getAddress();
-        console.log("🧾 Conectado como:", address);
-
-        status.innerText = "✅ Conectado como: " + address;
-
-        // Crear contrato solo si hay dirección real
-        if (CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000") {
-          contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-        }
-      } catch (err) {
-        console.error("🚫 Error al conectar MetaMask:", err);
-        status.innerText = "❌ Error al conectar MetaMask. Revisa la consola (F12).";
+      } else {
+        statusText.innerHTML = "⚠️ MetaMask no está instalada.";
       }
     }
 
-    async function hashFile(file) {
-      const arrayBuffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-      return hashHex;
-    }
-
-    async function registerDocument() {
-      if (!contract) {
-        alert("Primero conecta MetaMask correctamente y configura la dirección del contrato.");
-        return;
-      }
-
-      const file = document.getElementById("fileInput").files[0];
-      if (!file) {
-        alert("Selecciona un archivo primero");
-        return;
-      }
-
-      const hash = await hashFile(file);
-      document.getElementById("hash").innerText = "Hash del documento: " + hash;
-
-      try {
-        const exists = await contract.isRegistered(hash);
-        if (exists) {
-          document.getElementById("txResult").innerText = "⚠️ Documento ya registrado.";
-          return;
-        }
-
-        const tx = await contract.registerDocument(hash);
-        document.getElementById("txResult").innerText = "⏳ Enviando transacción... " + tx.hash;
-        await tx.wait();
-        document.getElementById("txResult").innerText = "✅ Documento registrado con éxito. Tx: " + tx.hash;
-      } catch (error) {
-        console.error("🚫 Error al registrar:", error);
-        document.getElementById("txResult").innerText = "❌ Error al registrar el documento.";
-      }
-    }
-
-    document.getElementById("connectBtn").onclick = connect;
-    document.getElementById("registerBtn").onclick = registerDocument;
+    connectButton.addEventListener("click", connect);
   </script>
 </body>
 </html>
