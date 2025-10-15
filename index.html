@@ -30,5 +30,24 @@
 
     document.getElementById("connectButton").addEventListener("click", connectMetaMask);
   </script>
+  // SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract DocumentRegistry {
+    mapping(bytes32 => bool) public registeredDocuments;
+
+    event DocumentRegistered(bytes32 indexed docHash, address indexed owner);
+
+    function registerDocument(bytes32 docHash) public {
+        require(!registeredDocuments[docHash], "Documento ya registrado");
+        registeredDocuments[docHash] = true;
+        emit DocumentRegistered(docHash, msg.sender);
+    }
+
+    function isRegistered(bytes32 docHash) public view returns (bool) {
+        return registeredDocuments[docHash];
+    }
+}
+
 </body>
 </html>
