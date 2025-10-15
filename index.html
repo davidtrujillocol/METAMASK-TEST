@@ -3,49 +3,140 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Conectar MetaMask</title>
+  <title>Certificación Blockchain - Sepolia</title>
   <style>
     body { font-family: Inter, system-ui, sans-serif; background:#f8fafc; color:#111827; text-align:center; padding:40px; }
-    button { padding:12px 20px; background:#2563eb; color:white; border:none; border-radius:10px; font-size:1rem; cursor:pointer; }
+    h1 { color:#1e3a8a; margin-bottom:20px; }
+    input, button { margin:10px; padding:12px 18px; border-radius:10px; font-size:1rem; }
+    button { background:#2563eb; color:white; border:none; cursor:pointer; }
     button:hover { background:#1d4ed8; }
-    #account, #network { margin-top:15px; font-size:0.95rem; }
+    #status, #account, #network, #result { margin-top:15px; font-size:0.95rem; }
+    .box { background:white; padding:25px; border-radius:14px; box-shadow:0 4px 12px rgba(0,0,0,0.1); display:inline-block; margin-top:20px; }
   </style>
 </head>
 <body>
-  <h1>🔗 Conectar con MetaMask (Sepolia)</h1>
-  <button id="connectBtn">Conectar MetaMask</button>
-  <p id="account">No conectado</p>
-  <p id="network"></p>
+  <h1>🔐 Validar y Registrar Documentos en Blockchain</h1>
 
-  <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
+  <div class="box">
+    <button id="connectBtn">Conectar MetaMask</button>
+    <p id="account">No conectado</p>
+    <p id="network"></p>
+  </div>
+
+  <div class="box">
+    <h2>📄 Subir Documento</h2>
+    <input type="file" id="fileInput" />
+    <button id="hashBtn">Calcular Hash</button>
+    <p id="hash"></p>
+  </div>
+
+  <div class="box">
+    <h2>🧾 Acciones Blockchain</h2>
+    <button id="verifyBtn">Verificar Documento</button>
+    <button id="registerBtn">Registrar Documento</button>
+    <p id="result"></p>
+  </div>
+
+  <p id="status"></p>
+
+  <!-- ✅ Ethers.js versión moderna -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.11.1/ethers.umd.min.js"></script>
   <script>
     const connectBtn = document.getElementById('connectBtn');
     const accountEl = document.getElementById('account');
     const networkEl = document.getElementById('network');
+    const statusEl = document.getElementById('status');
+    const hashEl = document.getElementById('hash');
+    const resultEl = document.getElementById('result');
+    const fileInput = document.getElementById('fileInput');
+    const verifyBtn = document.getElementById('verifyBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const hashBtn = document.getElementById('hashBtn');
+
+    const CONTRACT_ADDRESS = "0x826262f8f88cc8c723a30fa96ee9ad76ac9c3ffc";
     const SEPOLIA_CHAIN_ID = 11155111;
 
+    // ABI mínimo (ajústalo si cambió en tu contrato)
+    const CONTRACT_ABI = [
+      "function certifyDocument(bytes32 docHash) public",
+      "function verifyDocument(bytes32 docHash) public view returns (address)"
+    ];
+
+    let provider, signer, contract, currentHash;
+
+    // ✅ Conectar MetaMask
     connectBtn.addEventListener('click', async () => {
       if (!window.ethereum) {
-        alert('MetaMask no está instalada. Instálala desde https://metamask.io/');
+        alert('Instala MetaMask desde https://metamask.io/');
         return;
       }
-
       try {
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        await provider.send("eth_requestAccounts", []); // pide conexión
-        const signer = provider.getSigner();
+        provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = await provider.getSigner();
         const address = await signer.getAddress();
         accountEl.textContent = `Conectado: ${address}`;
-
         const network = await provider.getNetwork();
-        networkEl.textContent = `Red: ${network.name} (chainId: ${network.chainId})`;
-
+        networkEl.textContent = `Red: ${network.name} (${network.chainId})`;
         if (network.chainId !== SEPOLIA_CHAIN_ID) {
-          networkEl.textContent += " ⚠️ Cambia MetaMask a Sepolia Testnet";
+          networkEl.textContent += " ⚠️ Cambia a Sepolia Testnet";
+        }
+        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        statusEl.textContent = "✅ Conexión exitosa con MetaMask";
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "❌ Error al conectar MetaMask.";
+      }
+    });
+
+    // 🧮 Calcular hash del documento (SHA-256)
+    hashBtn.addEventListener('click', async () => {
+      const file = fileInput.files[0];
+      if (!file) {
+        alert("Selecciona un archivo primero");
+        return;
+      }
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = "0x" + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      currentHash = hashHex;
+      hashEl.textContent = `Hash del documento: ${hashHex}`;
+    });
+
+    // 🔍 Verificar documento en blockchain
+    verifyBtn.addEventListener('click', async () => {
+      if (!contract || !currentHash) {
+        alert("Conecta MetaMask y calcula el hash primero");
+        return;
+      }
+      try {
+        const certifier = await contract.verifyDocument(currentHash);
+        if (certifier === "0x0000000000000000000000000000000000000000") {
+          resultEl.textContent = "❌ Documento NO registrado.";
+        } else {
+          resultEl.textContent = `✅ Documento certificado por ${certifier}`;
         }
       } catch (err) {
         console.error(err);
-        accountEl.textContent = 'Error conectando con MetaMask.';
+        resultEl.textContent = "❌ Error al verificar documento.";
+      }
+    });
+
+    // 🧾 Registrar documento en blockchain
+    registerBtn.addEventListener('click', async () => {
+      if (!contract || !currentHash) {
+        alert("Conecta MetaMask y calcula el hash primero");
+        return;
+      }
+      try {
+        const tx = await contract.certifyDocument(currentHash);
+        statusEl.textContent = "📡 Enviando transacción...";
+        await tx.wait();
+        statusEl.textContent = "✅ Documento registrado correctamente.";
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "❌ Error al registrar documento.";
       }
     });
   </script>
