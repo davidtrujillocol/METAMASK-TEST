@@ -1,41 +1,189 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Certificación en Blockchain</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Validar documento - Tikisa (Sepolia)</title>
   <style>
-    body { font-family: Arial; text-align: center; margin-top: 60px; background: #f0f4f9; }
-    button { padding: 10px 20px; border: none; border-radius: 8px; background: #007bff; color: white; cursor: pointer; font-size: 16px; }
-    #status { margin-top: 20px; font-weight: bold; }
+    body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; max-width:880px; margin:24px auto; background:#f6f8fb; color:#102a43; padding:16px; }
+    .card { background:#fff; border-radius:12px; padding:18px; box-shadow:0 6px 22px rgba(16,42,67,0.06); margin-bottom:18px; }
+    h1 { margin:0 0 8px 0; font-size:1.4rem; }
+    label { font-weight:600; display:block; margin-top:12px; }
+    input[type=file], input[type=text], button { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #e2e8f0; margin-top:8px; box-sizing:border-box; font-size:1rem; }
+    button { background:#2563eb; color:white; border:none; cursor:pointer; }
+    button.secondary { background:#374151; }
+    pre { background:#f1f5f9; border-radius:8px; padding:12px; overflow:auto; }
+    .small { font-size:0.88rem; color:#6b7280; }
+    a.link { color:#2563eb; text-decoration:none; }
+    .ok { color: #059669; font-weight:700; }
+    .bad { color: #ef4444; font-weight:700; }
   </style>
 </head>
 <body>
-  <h2>🔐 Validar y Guardar Documento en Blockchain</h2>
-  <button id="connectBtn">Conectar MetaMask</button>
-  <p id="status">Esperando conexión...</p>
+
+  <div class="card">
+    <h1>🔎 Validar autenticidad de documento (Sepolia)</h1>
+    <p class="small">Sube un archivo. La página calculará su SHA-256 y consultará el contrato desplegado en Sepolia para validar si el hash fue certificado.</p>
+
+    <label>1) Conectar MetaMask</label>
+    <button id="connectBtn">Conectar MetaMask</button>
+    <p id="account" class="small">No conectado</p>
+    <p id="network" class="small"></p>
+  </div>
+
+  <div class="card">
+    <label>2) Selecciona archivo</label>
+    <input id="fileInput" type="file" />
+    <button id="calcBtn" class="secondary">Calcular SHA-256</button>
+    <pre id="hashOut">Hash: —</pre>
+  </div>
+
+  <div class="card">
+    <label>3) Verificar en blockchain</label>
+    <button id="verifyBtn">Verificar hash en contrato</button>
+    <pre id="result">Resultado: —</pre>
+    <p class="small">Contrato usado: <span id="contractAddr"></span></p>
+  </div>
 
   <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
   <script>
-    const connectButton = document.getElementById("connectBtn");
-    const statusText = document.getElementById("status");
+    // ======= CONFIG =======
+    // Dirección del contrato desplegado en Sepolia (reemplaza si usas otra)
+    const CONTRACT_ADDRESS = "0x826262f8f88cc8c723a30fa96ee9ad76ac9c3ffc";
+    // ABI reducido (firmas de función)
+    const CONTRACT_ABI = [
+      "function verifyDocument(bytes32 docHash) public view returns (address, uint256, bool)"
+    ];
+    const SEPOLIA_CHAIN_ID = 11155111; // chainId decimal
 
-    async function connect() {
-      console.log("🔗 Detectando MetaMask...");
-      if (typeof window.ethereum !== 'undefined') {
-        try {
-          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-          console.log("✅ Cuentas detectadas:", accounts);
-          statusText.innerHTML = `✅ Conectado como: <b>${accounts[0]}</b>`;
-        } catch (error) {
-          console.error("🚫 Error al conectar MetaMask:", error);
-          statusText.innerHTML = "❌ Error al conectar MetaMask. Revisa la consola (F12).";
-        }
-      } else {
-        statusText.innerHTML = "⚠️ MetaMask no está instalada.";
+    // ======= UI refs =======
+    const connectBtn = document.getElementById('connectBtn');
+    const accountEl = document.getElementById('account');
+    const networkEl = document.getElementById('network');
+    const fileInput = document.getElementById('fileInput');
+    const calcBtn = document.getElementById('calcBtn');
+    const hashOut = document.getElementById('hashOut');
+    const verifyBtn = document.getElementById('verifyBtn');
+    const resultEl = document.getElementById('result');
+    const contractAddrEl = document.getElementById('contractAddr');
+
+    contractAddrEl.textContent = CONTRACT_ADDRESS;
+    contractAddrEl.innerHTML = `<a class="link" href="https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}" target="_blank">${CONTRACT_ADDRESS}</a>`;
+
+    // ======= Estado =======
+    let provider = null;
+    let signer = null;
+    let contract = null;
+    let computedHash = null; // "0x..." hex
+
+    // ======= Helpers =======
+    function toHexString(buffer) {
+      return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
+    }
+
+    async function computeSHA256(file) {
+      const ab = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', ab);
+      const hex = toHexString(hashBuffer);
+      return '0x' + hex;
+    }
+
+    async function ensureProviderAndSigner() {
+      if (!window.ethereum) throw new Error('MetaMask no detectada');
+      if (!provider) {
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+      }
+      // request accounts if signer not set
+      if (!signer) {
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+      }
+      // set contract
+      if (!contract) {
+        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
       }
     }
 
-    connectButton.addEventListener("click", connect);
+    // ======= Event handlers =======
+    connectBtn.addEventListener('click', async () => {
+      try {
+        if (!window.ethereum) {
+          alert('Instala MetaMask en tu navegador.');
+          return;
+        }
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+        const address = await signer.getAddress();
+        accountEl.textContent = `Conectado: ${address}`;
+        // network info
+        const network = await provider.getNetwork();
+        networkEl.textContent = `Red: ${network.name} (chainId: ${network.chainId})`;
+        if (network.chainId !== SEPOLIA_CHAIN_ID) {
+          networkEl.textContent += " — ⚠️ Cambia MetaMask a Sepolia Testnet";
+        }
+        // create contract instance connected to provider (readonly)
+        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+      } catch (err) {
+        console.error(err);
+        accountEl.textContent = 'Error conectando MetaMask. Mira la consola.';
+      }
+    });
+
+    calcBtn.addEventListener('click', async () => {
+      const f = fileInput.files[0];
+      if (!f) { alert('Selecciona un archivo primero'); return; }
+      hashOut.textContent = 'Calculando SHA-256...';
+      try {
+        const h = await computeSHA256(f);
+        computedHash = h;
+        hashOut.textContent = `Hash (SHA-256):\n${h}`;
+        resultEl.textContent = 'Hash calculado. Presiona "Verificar hash en contrato".';
+      } catch (e) {
+        console.error(e);
+        hashOut.textContent = 'Error calculando hash';
+      }
+    });
+
+    verifyBtn.addEventListener('click', async () => {
+      try {
+        if (!computedHash) { alert('Calcula el hash del archivo primero'); return; }
+        await ensureProviderAndSigner(); // ensures contract exists
+        // Use call (view) on the contract
+        // connect contract to provider (readonly)
+        const readContract = contract.connect(provider);
+        // Call verifyDocument(bytes32) returns (address,uint256,bool)
+        const res = await readContract.verifyDocument(computedHash);
+        // In ethers v5, res is an array-like object. We'll extract.
+        const certifier = res[0];
+        const timestamp = res[1].toNumber ? res[1].toNumber() : Number(res[1]);
+        const exists = res[2];
+
+        if (exists && certifier !== "0x0000000000000000000000000000000000000000") {
+          const date = new Date(timestamp * 1000).toLocaleString();
+          resultEl.innerHTML = `<span class="ok">✅ Documento AUTÉNTICO</span>\nCertificado por: ${certifier}\nFecha: ${date}\n\nConsulta en Etherscan: https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`;
+        } else {
+          resultEl.innerHTML = `<span class="bad">❌ Documento NO registrado</span>\nPuedes certificarlo desde la cuenta autorizada (owner) o con la app de certificación.`;
+        }
+      } catch (err) {
+        console.error(err);
+        // Si la función revertía o no existe, lo manejamos
+        resultEl.textContent = 'Error verificando en blockchain. Mira la consola (F12).';
+      }
+    });
+
+    // Detect account/network changes and update UI
+    if (window.ethereum) {
+      window.ethereum.on && window.ethereum.on('accountsChanged', (accounts) => {
+        if (accounts.length) accountEl.textContent = `Conectado: ${accounts[0]}`;
+        else accountEl.textContent = 'Conexión desconectada';
+      });
+      window.ethereum.on && window.ethereum.on('chainChanged', (chainIdHex) => {
+        // reload or update network text
+        const chainId = parseInt(chainIdHex, 16);
+        networkEl.textContent = `Red cambiada (chainId: ${chainId}). Recarga la página si es necesario.`;
+      });
+    }
   </script>
 </body>
 </html>
