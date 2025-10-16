@@ -54,7 +54,8 @@
   </div>
 
   <script>
-    const contractAddress = "0x8262628f388cc8c723a30fa96ee9ad76ac9c3ffc";
+    // 🧾 Dirección del contrato actual en Sepolia
+    const contractAddress = "0xd2c97c29e149dc1b1de22ccd248b9fe4e7bf9cbe";
     const contractABI = [
       "function registerDocument(bytes32 hash) public",
       "function verifyDocument(bytes32 hash) public view returns (bool)"
@@ -73,9 +74,12 @@
         selectedAccount = await signer.getAddress();
         contract = new ethers.Contract(contractAddress, contractABI, signer);
 
-        document.getElementById("account").innerText = "Cuenta: " + selectedAccount;
         const network = await provider.getNetwork();
+        document.getElementById("account").innerText = "Cuenta: " + selectedAccount;
         document.getElementById("network").innerText = "Red: " + network.name + " (" + network.chainId + ")";
+        if (network.chainId !== 11155111) {
+          alert("⚠️ Cambia tu red a Sepolia en MetaMask.");
+        }
         document.getElementById("status").innerHTML = "✅ Conectado correctamente.";
       } catch (err) {
         console.error(err);
@@ -90,9 +94,13 @@
       const buffer = await file.arrayBuffer();
       const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
-      currentHash = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      let hashHex = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      // Truncar a 32 bytes (64 caracteres hexadecimales después de 0x)
+      hashHex = hashHex.slice(0, 66);
+      currentHash = hashHex;
       document.getElementById("fileHash").innerText = "Hash: " + currentHash;
       document.getElementById("status").innerHTML = "✅ Hash calculado correctamente.";
+      console.log("Hash generado:", currentHash);
     };
 
     // 3️⃣ Registrar documento en blockchain
@@ -104,7 +112,7 @@
         await tx.wait();
         document.getElementById("status").innerHTML = "✅ Documento registrado correctamente.";
       } catch (err) {
-        console.error(err);
+        console.error("Error al registrar:", err);
         document.getElementById("status").innerHTML = "❌ Error al registrar documento.";
       }
     };
@@ -120,7 +128,7 @@
           document.getElementById("status").innerHTML = "⚠️ El documento NO está registrado.";
         }
       } catch (err) {
-        console.error(err);
+        console.error("Error al verificar:", err);
         document.getElementById("status").innerHTML = "❌ Error al verificar documento.";
       }
     };
