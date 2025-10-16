@@ -106,21 +106,27 @@
 
     // 3️⃣ Registrar documento en blockchain
     document.getElementById("registerButton").onclick = async () => {
-      if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
-      try {
-        // Convertir hash a formato bytes32
-        const hashBytes32 = ethers.utils.arrayify(currentHash);
+  if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
+  try {
+    const hashBytes32 = ethers.utils.arrayify(currentHash);
 
-        const tx = await contract.registerDocument(hashBytes32);
-        document.getElementById("status").innerHTML = "⏳ Registrando documento...";
-        await tx.wait();
-        document.getElementById("status").innerHTML = "✅ Documento registrado correctamente.";
-      } catch (err) {
-        console.error("Error al registrar:", err);
-        document.getElementById("status").innerHTML = "❌ Error al registrar documento. Revisa la consola.";
-      }
-    };
+    // 🟡 Verificar antes de registrar
+    const alreadyRegistered = await contract.verifyDocument(hashBytes32);
+    if (alreadyRegistered) {
+      document.getElementById("status").innerHTML = "⚠️ Este documento ya está registrado.";
+      return;
+    }
 
+    const tx = await contract.registerDocument(hashBytes32);
+    document.getElementById("status").innerHTML = "⏳ Registrando documento...";
+    await tx.wait();
+    document.getElementById("status").innerHTML = "✅ Documento registrado correctamente.";
+  } catch (err) {
+    console.error("Error al registrar:", err);
+    document.getElementById("status").innerHTML =
+      "❌ Error al registrar documento. Consulta la consola.";
+  }
+};
     // 4️⃣ Verificar documento en blockchain
     document.getElementById("verifyButton").onclick = async () => {
       if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
