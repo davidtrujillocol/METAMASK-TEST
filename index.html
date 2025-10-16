@@ -5,41 +5,68 @@
   <title>Validar y Registrar Documentos en Blockchain</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; background: #f6f8ff; color: #222; }
-    h1 { color: #1a237e; margin-top: 40px; }
-    .container { display: flex; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #eef3ff;
+      text-align: center;
+      color: #222;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: #1a237e;
+      color: white;
+      padding: 20px;
+    }
+    h1 { margin: 0; font-size: 24px; }
+    .container {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 40px;
+      gap: 20px;
+    }
     .card {
-      background: #fff;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      background: white;
       border-radius: 16px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
       padding: 24px;
-      margin: 12px;
       width: 360px;
     }
     button {
-      background: #2962ff; color: white; border: none;
-      padding: 10px 18px; border-radius: 8px; cursor: pointer; margin-top: 12px;
+      background: #2962ff;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 12px;
+      font-weight: bold;
     }
     button:hover { background: #0039cb; }
+    p { font-size: 14px; word-wrap: break-word; }
     .success { color: green; }
     .error { color: red; }
-    p { font-size: 14px; }
   </style>
 </head>
 <body>
 
-  <h1>🔐 Validar y Registrar Documentos en Blockchain</h1>
+  <header>
+    <h1>🔐 Validar y Registrar Documentos en Blockchain</h1>
+    <p>Red Sepolia - Contrato: <b>0xd2C97c29E149Dc1b1DE22Ccd248b9Fe4e7Bf9CBe</b></p>
+  </header>
 
   <div class="container">
-    <!-- Conexión con MetaMask -->
+
+    <!-- 1️⃣ MetaMask -->
     <div class="card">
-      <h3>🔗 MetaMask</h3>
-      <button id="connectButton">Conectar MetaMask</button>
+      <h3>🦊 Conectar MetaMask</h3>
+      <button id="connectButton">Conectar</button>
       <p id="account"></p>
       <p id="network"></p>
     </div>
 
-    <!-- Cálculo del Hash -->
+    <!-- 2️⃣ Subir archivo -->
     <div class="card">
       <h3>📄 Subir Documento</h3>
       <input type="file" id="fileInput"><br>
@@ -47,102 +74,96 @@
       <p id="fileHash"></p>
     </div>
 
-    <!-- Acciones en la Blockchain -->
+    <!-- 3️⃣ Acciones -->
     <div class="card">
       <h3>⚙️ Acciones Blockchain</h3>
       <button id="verifyButton">Verificar Documento</button>
       <button id="registerButton">Registrar Documento</button>
       <p id="status"></p>
     </div>
+
   </div>
 
   <script>
-    // 🧾 Contrato desplegado en Sepolia
-    const contractAddress = "0xd2c97c29e149dc1b1de22ccd248b9fe4e7bf9cbe";
+    const contractAddress = "0xd2C97c29E149Dc1b1DE22Ccd248b9Fe4e7Bf9CBe";
     const contractABI = [
-      "function registerDocument(bytes32 hash) public",
-      "function verifyDocument(bytes32 hash) public view returns (bool)"
+      "function certifyDocument(bytes32 docHash) public",
+      "function verifyDocument(bytes32 docHash) public view returns (address certifier, uint256 timestamp, bool exists)"
     ];
 
-    let provider, signer, contract, selectedAccount;
-    let currentHash;
+    let provider, signer, contract, currentHash;
 
-    // 1️⃣ Conectar MetaMask
+    // 🦊 Conectar MetaMask
     document.getElementById("connectButton").onclick = async () => {
-      if (!window.ethereum) return alert("Instala MetaMask primero.");
+      if (!window.ethereum) return alert("Por favor, instala MetaMask.");
       try {
         provider = new ethers.providers.Web3Provider(window.ethereum);
         await provider.send("eth_requestAccounts", []);
         signer = provider.getSigner();
-        selectedAccount = await signer.getAddress();
         contract = new ethers.Contract(contractAddress, contractABI, signer);
-
+        const account = await signer.getAddress();
         const network = await provider.getNetwork();
-        document.getElementById("account").innerText = "Cuenta: " + selectedAccount;
+
+        document.getElementById("account").innerText = "Cuenta: " + account;
         document.getElementById("network").innerText = "Red: " + network.name + " (" + network.chainId + ")";
-        document.getElementById("status").innerHTML = "✅ Conectado correctamente.";
+        document.getElementById("status").innerHTML = "✅ MetaMask conectada correctamente.";
       } catch (err) {
         console.error(err);
         document.getElementById("status").innerHTML = "❌ Error al conectar MetaMask.";
       }
     };
 
-    // 2️⃣ Calcular hash SHA-256 del archivo
+    // 📄 Calcular hash SHA-256 del archivo
     document.getElementById("hashButton").onclick = async () => {
       const file = document.getElementById("fileInput").files[0];
-      if (!file) return alert("Selecciona un archivo primero.");
-      try {
-        const buffer = await file.arrayBuffer();
-        const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        currentHash = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-        document.getElementById("fileHash").innerText = "Hash: " + currentHash;
-        document.getElementById("status").innerHTML = "✅ Hash calculado correctamente.";
-      } catch (err) {
-        console.error(err);
-        document.getElementById("status").innerHTML = "❌ Error al calcular hash.";
-      }
+      if (!file) return alert("Selecciona un archivo.");
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      currentHash = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      document.getElementById("fileHash").innerText = "Hash: " + currentHash;
+      document.getElementById("status").innerHTML = "✅ Hash generado correctamente.";
     };
 
-    // 3️⃣ Registrar documento en blockchain
-    document.getElementById("registerButton").onclick = async () => {
-  if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
-  try {
-    const hashBytes32 = ethers.utils.arrayify(currentHash);
-
-    // 🟡 Verificar antes de registrar
-    const alreadyRegistered = await contract.verifyDocument(hashBytes32);
-    if (alreadyRegistered) {
-      document.getElementById("status").innerHTML = "⚠️ Este documento ya está registrado.";
-      return;
-    }
-
-    const tx = await contract.registerDocument(hashBytes32);
-    document.getElementById("status").innerHTML = "⏳ Registrando documento...";
-    await tx.wait();
-    document.getElementById("status").innerHTML = "✅ Documento registrado correctamente.";
-  } catch (err) {
-    console.error("Error al registrar:", err);
-    document.getElementById("status").innerHTML =
-      "❌ Error al registrar documento. Consulta la consola.";
-  }
-};
-    // 4️⃣ Verificar documento en blockchain
+    // 🔍 Verificar documento
     document.getElementById("verifyButton").onclick = async () => {
       if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
       try {
-        const hashBytes32 = ethers.utils.arrayify(currentHash);
-        const result = await contract.verifyDocument(hashBytes32);
-        if (result) {
-          document.getElementById("status").innerHTML = "✅ El documento está registrado en la blockchain.";
+        const result = await contract.verifyDocument(currentHash);
+        const [certifier, timestamp, exists] = result;
+        if (exists) {
+          const date = new Date(timestamp * 1000).toLocaleString();
+          document.getElementById("status").innerHTML =
+            "✅ Documento registrado por " + certifier + " el " + date;
         } else {
-          document.getElementById("status").innerHTML = "⚠️ El documento NO está registrado.";
+          document.getElementById("status").innerHTML = "⚠️ El documento no está registrado.";
         }
       } catch (err) {
-        console.error("Error al verificar:", err);
+        console.error(err);
         document.getElementById("status").innerHTML = "❌ Error al verificar documento.";
       }
     };
+
+    // 📝 Registrar documento
+    document.getElementById("registerButton").onclick = async () => {
+      if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
+      try {
+        document.getElementById("status").innerHTML = "⏳ Enviando transacción...";
+        const tx = await contract.certifyDocument(currentHash);
+        await tx.wait();
+        document.getElementById("status").innerHTML = "✅ Documento registrado exitosamente.";
+      } catch (err) {
+        console.error("Error al registrar:", err);
+        if (err.error && err.error.message.includes("Solo el propietario")) {
+          document.getElementById("status").innerHTML = "🚫 Solo el propietario puede registrar documentos.";
+        } else if (err.message.includes("execution reverted")) {
+          document.getElementById("status").innerHTML = "⚠️ El documento ya está registrado o no tienes permiso.";
+        } else {
+          document.getElementById("status").innerHTML = "❌ Error al registrar documento.";
+        }
+      }
+    };
   </script>
+
 </body>
 </html>
