@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Validar y Registrar Documentos en Blockchain</title>
+
+  <!-- Ethers v5 -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+
   <style>
     body {
       font-family: 'Segoe UI', Arial, sans-serif;
@@ -25,6 +28,7 @@
       flex-wrap: wrap;
       margin-top: 40px;
       gap: 20px;
+      padding: 0 16px 40px;
     }
     .card {
       background: white;
@@ -32,6 +36,7 @@
       box-shadow: 0 4px 10px rgba(0,0,0,0.1);
       padding: 24px;
       width: 360px;
+      text-align: center;
     }
     button {
       background: #2962ff;
@@ -44,13 +49,75 @@
       font-weight: bold;
     }
     button:hover { background: #0039cb; }
+
+    .secondary {
+      background: #ffffff;
+      color: #2962ff;
+      border: 2px solid #2962ff;
+    }
+    .secondary:hover {
+      background: #eef3ff;
+    }
+
     p { font-size: 14px; word-wrap: break-word; }
-    .success { color: green; }
-    .error { color: red; }
+    .success { color: #1b5e20; }
+    .error { color: #b71c1c; }
+    .muted { color: #666; }
+
+    .txbox {
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #d9e1ff;
+      border-radius: 10px;
+      background: #f7f9ff;
+      text-align: left;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .history {
+      text-align: left;
+      margin-top: 12px;
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid #e5e7ff;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fbfbff;
+    }
+    .history-item {
+      border-bottom: 1px dashed #d6dbff;
+      padding: 10px 0;
+    }
+    .history-item:last-child {
+      border-bottom: none;
+    }
+    .history-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .smallbtn {
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-top: 0;
+    }
+    .danger {
+      background: #d32f2f;
+    }
+    .danger:hover {
+      background: #b71c1c;
+    }
+    .disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
   </style>
 </head>
-<body>
 
+<body>
   <header>
     <h1>🔐 Validar y Registrar Documentos en Blockchain</h1>
     <p>Red Sepolia - Contrato: <b>0xd2C97c29E149Dc1b1DE22Ccd248b9Fe4e7Bf9CBe</b></p>
@@ -64,6 +131,9 @@
       <button id="connectButton">Conectar</button>
       <p id="account"></p>
       <p id="network"></p>
+      <p class="muted" style="margin-top:8px;">
+        Tip: la app fuerza Sepolia automáticamente.
+      </p>
     </div>
 
     <!-- 2️⃣ Subir archivo -->
@@ -72,6 +142,7 @@
       <input type="file" id="fileInput"><br>
       <button id="hashButton">Calcular Hash</button>
       <p id="fileHash"></p>
+      <p class="muted" id="fileName"></p>
     </div>
 
     <!-- 3️⃣ Acciones -->
@@ -79,27 +150,141 @@
       <h3>⚙️ Acciones Blockchain</h3>
       <button id="verifyButton">Verificar Documento</button>
       <button id="registerButton">Registrar Documento</button>
+
+      <!-- ✅ TX Hash + botón Etherscan -->
+      <div id="txPanel" class="txbox" style="display:none;">
+        <div><b>TX Hash:</b> <span id="txHash"></span></div>
+        <div style="margin-top:6px;">
+          <button id="etherscanBtn" class="secondary smallbtn">Ver en Etherscan</button>
+        </div>
+      </div>
+
       <p id="status"></p>
+    </div>
+
+    <!-- 4️⃣ Historial -->
+    <div class="card">
+      <h3>🗂️ Historial de Documentos Registrados</h3>
+      <p class="muted">Se guarda en este navegador (localStorage).</p>
+      <div id="history" class="history"></div>
+      <div class="history-actions">
+        <button id="clearHistoryBtn" class="danger smallbtn">Borrar historial</button>
+      </div>
     </div>
 
   </div>
 
   <script>
+    // ======================
+    // Configuración del contrato
+    // ======================
     const contractAddress = "0xd2C97c29E149Dc1b1DE22Ccd248b9Fe4e7Bf9CBe";
     const contractABI = [
       "function certifyDocument(bytes32 docHash) public",
       "function verifyDocument(bytes32 docHash) public view returns (address certifier, uint256 timestamp, bool exists)"
     ];
 
-    let provider, signer, contract, currentHash;
-
-    // ===== Config Sepolia =====
-    // Sepolia chainId: 11155111 (0xaa36a7 en HEX) [2](https://docs.metamask.io/metamask-connect/evm/guides/manage-networks/)[3](https://ethereum.stackexchange.com/questions/134674/how-to-change-or-prompt-to-change-a-users-current-metamask-network-programmat)
+    // ======================
+    // Sepolia (forzar red)
+    // ======================
     const SEPOLIA_CHAIN_ID_DEC = 11155111;
     const SEPOLIA_CHAIN_ID_HEX = "0xaa36a7";
 
-    // ✅ Fuerza Sepolia: intenta cambiar; si no existe, la agrega y vuelve a intentar
-    // wallet_switchEthereumChain y wallet_addEthereumChain están estandarizados para wallets [1](https://eips.ethereum.org/EIPS/eip-3326)[2](https://docs.metamask.io/metamask-connect/evm/guides/manage-networks/)
+    // Etherscan Sepolia base
+    const SEPOLIA_ETHERSCAN_TX = (txHash) => `https://sepolia.etherscan.io/tx/${txHash}`;
+    const SEPOLIA_ETHERSCAN_ADDR = (addr) => `https://sepolia.etherscan.io/address/${addr}`;
+
+    // ======================
+    // Estado global
+    // ======================
+    let provider, signer, contract, currentHash;
+    let lastTxHash = null;
+    let currentFileName = "";
+
+    const LS_HISTORY_KEY = "doc_history_v1";
+    const LS_LAST_HASH_KEY = "last_doc_hash_v1";
+    const LS_LAST_FILE_KEY = "last_doc_file_v1";
+
+    // ======================
+    // Helpers UI
+    // ======================
+    function setStatus(msg, type = "") {
+      const el = document.getElementById("status");
+      el.className = type;
+      el.innerHTML = msg;
+    }
+
+    function showTxPanel(txHash) {
+      lastTxHash = txHash;
+      document.getElementById("txHash").innerText = txHash;
+      document.getElementById("txPanel").style.display = "block";
+
+      // botón directo a Etherscan
+      document.getElementById("etherscanBtn").onclick = () => {
+        window.open(SEPOLIA_ETHERSCAN_TX(txHash), "_blank");
+      };
+    }
+
+    function hideTxPanel() {
+      lastTxHash = null;
+      document.getElementById("txPanel").style.display = "none";
+      document.getElementById("txHash").innerText = "";
+    }
+
+    function loadHistory() {
+      try {
+        const raw = localStorage.getItem(LS_HISTORY_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHistory(items) {
+      localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(items));
+    }
+
+    function renderHistory() {
+      const box = document.getElementById("history");
+      const items = loadHistory();
+
+      if (!items.length) {
+        box.innerHTML = `<div class="muted">Sin registros aún.</div>`;
+        return;
+      }
+
+      box.innerHTML = items.map((it, idx) => {
+        const when = new Date(it.time).toLocaleString();
+        const shortHash = it.docHash.slice(0, 10) + "..." + it.docHash.slice(-8);
+        const shortTx = it.txHash ? (it.txHash.slice(0, 10) + "..." + it.txHash.slice(-8)) : "—";
+
+        return `
+          <div class="history-item">
+            <div><b>#${items.length - idx}</b> — <span class="muted">${when}</span></div>
+            <div><b>Archivo:</b> ${it.fileName || "(sin nombre)"}</div>
+            <div><b>DocHash:</b> <span title="${it.docHash}">${shortHash}</span></div>
+            <div><b>TX:</b> <span title="${it.txHash || ""}">${shortTx}</span></div>
+            <div><b>Cuenta:</b> <span title="${it.account || ""}">${it.account ? (it.account.slice(0, 8) + "..." + it.account.slice(-6)) : "—"}</span></div>
+            <div class="history-actions">
+              ${it.txHash ? `<button class="secondary smallbtn" onclick="window.open('${SEPOLIA_ETHERSCAN_TX(it.txHash)}','_blank')">Ver TX en Etherscan</button>` : ""}
+              <button class="secondary smallbtn" onclick="navigator.clipboard.writeText('${it.docHash}')">Copiar Hash</button>
+              ${it.txHash ? `<button class="secondary smallbtn" onclick="navigator.clipboard.writeText('${it.txHash}')">Copiar TX</button>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function addHistoryItem(item) {
+      const items = loadHistory();
+      items.unshift(item); // lo más reciente arriba
+      saveHistory(items);
+      renderHistory();
+    }
+
+    // ======================
+    // Forzar Sepolia (switch + add)
+    // ======================
     async function ensureSepolia() {
       if (!window.ethereum) throw new Error("MetaMask no detectado");
 
@@ -108,11 +293,8 @@
           method: "wallet_switchEthereumChain",
           params: [{ chainId: SEPOLIA_CHAIN_ID_HEX }],
         });
-        return true;
       } catch (err) {
-        // 4902: la red no está agregada
         if (err && err.code === 4902) {
-          // Importante: usar symbol "ETH" (corto) para evitar validaciones/bugs con símbolos largos [4](https://github.com/metamask/metamask-extension/issues/36905)
           await window.ethereum.request({
             method: "wallet_addEthereumChain",
             params: [{
@@ -124,40 +306,34 @@
             }],
           });
 
-          // luego de agregar, intenta el switch nuevamente
           await window.ethereum.request({
             method: "wallet_switchEthereumChain",
             params: [{ chainId: SEPOLIA_CHAIN_ID_HEX }],
           });
-          return true;
+        } else if (err && err.code === 4001) {
+          throw new Error("Rechazaste el cambio a Sepolia.");
+        } else {
+          throw err;
         }
-
-        // 4001: usuario rechazó
-        if (err && err.code === 4001) {
-          throw new Error("El usuario rechazó el cambio a Sepolia.");
-        }
-
-        throw err;
       }
     }
 
-    // ✅ Recomendado: si cambian de red, refrescar para que ethers detecte correctamente
-    // MetaMask recomienda manejar chainChanged para reflejar cambios de red [2](https://docs.metamask.io/metamask-connect/evm/guides/manage-networks/)
+    // Recargar si el usuario cambia red/cuenta
     if (window.ethereum) {
       window.ethereum.on("chainChanged", () => window.location.reload());
+      window.ethereum.on("accountsChanged", () => window.location.reload());
     }
 
-    // 🦊 Conectar MetaMask (con auto-switch a Sepolia)
+    // ======================
+    // Conectar MetaMask
+    // ======================
     document.getElementById("connectButton").onclick = async () => {
       if (!window.ethereum) return alert("Por favor, instala MetaMask.");
 
       try {
-        document.getElementById("status").innerHTML = "⏳ Cambiando a Sepolia...";
-
-        // 1) Forzar Sepolia ANTES de crear provider/signers
+        setStatus("⏳ Cambiando a Sepolia y conectando...", "muted");
         await ensureSepolia();
 
-        // 2) Conectar MetaMask con ethers Web3Provider (toma la red activa en la wallet) ethers.org/v4/api-providers.html)
         provider = new ethers.providers.Web3Provider(window.ethereum);
         await provider.send("eth_requestAccounts", []);
 
@@ -170,22 +346,25 @@
         document.getElementById("account").innerText = "Cuenta: " + account;
         document.getElementById("network").innerText = "Red: " + network.name + " (" + network.chainId + ")";
 
-        // 3) Validación dura: debe ser Sepolia
         if (network.chainId !== SEPOLIA_CHAIN_ID_DEC) {
-          document.getElementById("status").innerHTML =
-            "🚫 Estás en la red incorrecta. Cambia a Sepolia (11155111).";
+          setStatus("🚫 Estás en la red incorrecta. Debes estar en Sepolia (11155111).", "error");
           return;
         }
 
-        document.getElementById("status").innerHTML = "✅ MetaMask conectada correctamente en Sepolia.";
+        setStatus(
+          `✅ Conectado a Sepolia. Puedes ver tus transacciones aquí: <a href="${SEPOLIA_ETHERSCAN_ADDR(account)}" target="_blank">Ver address en Etherscan</a>`,
+          "success"
+        );
+
       } catch (err) {
         console.error(err);
-        document.getElementById("status").innerHTML =
-          "❌ Error al conectar/cambiar a Sepolia: " + (err.message || "ver consola");
+        setStatus("❌ Error al conectar/cambiar a Sepolia: " + (err.message || "ver consola"), "error");
       }
     };
 
-    // 📄 Calcular hash SHA-256 del archivo
+    // ======================
+    // Calcular hash SHA-256 del archivo
+    // ======================
     document.getElementById("hashButton").onclick = async () => {
       const file = document.getElementById("fileInput").files[0];
       if (!file) return alert("Selecciona un archivo.");
@@ -195,68 +374,138 @@
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       currentHash = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 
+      currentFileName = file.name || "";
       document.getElementById("fileHash").innerText = "Hash: " + currentHash;
-      document.getElementById("status").innerHTML = "✅ Hash generado correctamente.";
+      document.getElementById("fileName").innerText = currentFileName ? ("Archivo: " + currentFileName) : "";
+      hideTxPanel();
+
+      // Persistir último hash para evitar pérdidas por refresh
+      localStorage.setItem(LS_LAST_HASH_KEY, currentHash);
+      localStorage.setItem(LS_LAST_FILE_KEY, currentFileName);
+
+      setStatus("✅ Hash generado correctamente.", "success");
     };
 
-    // 🔍 Verificar documento
+    // ======================
+    // Verificar documento (read-only)
+    // ======================
     document.getElementById("verifyButton").onclick = async () => {
-      if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
+      if (!contract) return alert("Conecta MetaMask primero.");
+      if (!currentHash) return alert("Calcula el hash del documento primero.");
+
       try {
         const network = await provider.getNetwork();
         if (network.chainId !== SEPOLIA_CHAIN_ID_DEC) {
-          document.getElementById("status").innerHTML = "🚫 Cambia a Sepolia para verificar.";
+          setStatus("🚫 Cambia a Sepolia para verificar.", "error");
           return;
         }
 
-        const result = await contract.verifyDocument(currentHash);
-        const [certifier, timestamp, exists] = result;
+        const [certifier, timestamp, exists] = await contract.verifyDocument(currentHash);
 
         if (exists) {
-          const date = new Date(timestamp * 1000).toLocaleString();
-          document.getElementById("status").innerHTML =
-            "✅ Documento registrado por " + certifier + " el " + date;
+          const date = new Date(timestamp.toNumber() * 1000).toLocaleString();
+          setStatus(`✅ Hash REGISTRADO ✅<br>Certificador: ${certifier}<br>Fecha: ${date}`, "success");
         } else {
-          document.getElementById("status").innerHTML = "⚠️ El documento no está registrado.";
+          setStatus("⚠️ Hash NO registrado en el contrato.", "muted");
         }
       } catch (err) {
         console.error(err);
-        document.getElementById("status").innerHTML = "❌ Error al verificar documento.";
+        setStatus("❌ Error al verificar documento.", "error");
       }
     };
 
-    // 📝 Registrar documento
+    // ======================
+    // Registrar documento (write)
+    // ======================
     document.getElementById("registerButton").onclick = async () => {
-      if (!contract || !currentHash) return alert("Conecta MetaMask y calcula el hash primero.");
+      if (!contract) return alert("Conecta MetaMask primero.");
+      if (!currentHash) return alert("Calcula el hash del documento primero.");
 
       try {
         const network = await provider.getNetwork();
         if (network.chainId !== SEPOLIA_CHAIN_ID_DEC) {
-          document.getElementById("status").innerHTML = "🚫 Cambia a Sepolia para registrar.";
+          setStatus("🚫 Cambia a Sepolia para registrar.", "error");
           return;
         }
 
-        document.getElementById("status").innerHTML = "⏳ Enviando transacción...";
-        const tx = await contract.certifyDocument(currentHash);
-        await tx.wait();
+        setStatus("⏳ Enviando transacción...", "muted");
 
-        document.getElementById("status").innerHTML = "✅ Documento registrado exitosamente.";
+        const tx = await contract.certifyDocument(currentHash);
+
+        // ✅ mostrar TX hash en pantalla inmediatamente
+        showTxPanel(tx.hash);
+
+        setStatus(
+          `⏳ Transacción enviada.<br>TX: ${tx.hash}<br>
+           Puedes verla en Sepolia Etherscan.`,
+          "muted"
+        );
+
+        // esperar confirmación
+        const receipt = await tx.wait();
+
+        const account = await signer.getAddress();
+
+        // ✅ guardar en historial
+        addHistoryItem({
+          docHash: currentHash,
+          txHash: tx.hash,
+          time: Date.now(),
+          fileName: currentFileName || localStorage.getItem(LS_LAST_FILE_KEY) || "",
+          account: account,
+          blockNumber: receipt.blockNumber
+        });
+
+        setStatus(
+          `✅ Documento registrado exitosamente.<br>
+           Bloque: ${receipt.blockNumber}<br>
+           TX: ${tx.hash}`,
+          "success"
+        );
+
       } catch (err) {
         console.error("Error al registrar:", err);
 
-        // 4001: usuario rechazó en MetaMask
         if (err && err.code === 4001) {
-          document.getElementById("status").innerHTML = "🚫 Transacción rechazada por el usuario.";
+          setStatus("🚫 Transacción rechazada por el usuario.", "error");
         } else if (err.error && err.error.message && err.error.message.includes("Solo el propietario")) {
-          document.getElementById("status").innerHTML = "🚫 Solo el propietario puede registrar documentos.";
+          setStatus("🚫 Solo el propietario puede registrar documentos.", "error");
         } else if (err.message && err.message.includes("execution reverted")) {
-          document.getElementById("status").innerHTML = "⚠️ El documento ya está registrado o no tienes permiso.";
+          setStatus("⚠️ El documento ya está registrado o no tienes permiso.", "error");
         } else {
-          document.getElementById("status").innerHTML = "❌ Error al registrar documento.";
+          setStatus("❌ Error al registrar documento.", "error");
         }
       }
     };
-  </script>
 
+    // ======================
+    // Historial: borrar
+    // ======================
+    document.getElementById("clearHistoryBtn").onclick = () => {
+      localStorage.removeItem(LS_HISTORY_KEY);
+      renderHistory();
+      setStatus("🗑️ Historial borrado.", "muted");
+    };
+
+    // ======================
+    // On load: restaurar hash y render historial
+    // ======================
+    window.addEventListener("load", () => {
+      // restaurar último hash si existe (útil si hubo refresh)
+      const savedHash = localStorage.getItem(LS_LAST_HASH_KEY);
+      const savedFile = localStorage.getItem(LS_LAST_FILE_KEY);
+
+      if (savedHash) {
+        currentHash = savedHash;
+        document.getElementById("fileHash").innerText = "Hash: " + currentHash;
+      }
+      if (savedFile) {
+        currentFileName = savedFile;
+        document.getElementById("fileName").innerText = savedFile ? ("Archivo: " + savedFile) : "";
+      }
+
+      renderHistory();
+    });
+  </script>
 </body>
 </html>
