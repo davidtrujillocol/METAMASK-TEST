@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Validar y Registrar Documentos en Blockchain</title>
+  <title>Certificados en Blockchain (Sepolia)</title>
 
   <!-- Ethers v5 -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
@@ -35,7 +35,7 @@
       border-radius: 16px;
       box-shadow: 0 4px 10px rgba(0,0,0,0.1);
       padding: 24px;
-      width: 360px;
+      width: 380px;
       text-align: center;
     }
     button {
@@ -55,8 +55,14 @@
       color: #2962ff;
       border: 2px solid #2962ff;
     }
-    .secondary:hover {
-      background: #eef3ff;
+    .secondary:hover { background: #eef3ff; }
+
+    input {
+      width: 95%;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 10px;
+      border: 1px solid #cfd8ff;
     }
 
     p { font-size: 14px; word-wrap: break-word; }
@@ -78,20 +84,19 @@
     .history {
       text-align: left;
       margin-top: 12px;
-      max-height: 260px;
+      max-height: 320px;
       overflow: auto;
       border: 1px solid #e5e7ff;
       border-radius: 12px;
       padding: 10px;
       background: #fbfbff;
+      font-size: 13px;
     }
     .history-item {
       border-bottom: 1px dashed #d6dbff;
       padding: 10px 0;
     }
-    .history-item:last-child {
-      border-bottom: none;
-    }
+    .history-item:last-child { border-bottom: none; }
     .history-actions {
       display: flex;
       gap: 8px;
@@ -104,23 +109,23 @@
       font-size: 12px;
       margin-top: 0;
     }
-    .danger {
-      background: #d32f2f;
-    }
-    .danger:hover {
-      background: #b71c1c;
-    }
-    .disabled {
-      opacity: .55;
-      cursor: not-allowed;
-    }
   </style>
 </head>
 
 <body>
   <header>
-    <h1>🔐 Validar y Registrar Documentos en Blockchain</h1>
-    <p>Red Sepolia - Contrato: <b>0xd2C97c29E149Dc1b1DE22Ccd248b9Fe4e7Bf9CBe</b></p>
+    <h1>🔐 Certificación de Documentos en Blockchain</h1>
+
+    <!-- ✅ Header automático (se llena desde JS) -->
+    <p>
+      Red Sepolia — Contrato:
+      <b id="contractHeader">cargando...</b>
+      <span id="contractLink"></span>
+    </p>
+
+    <p class="muted" style="color:#dfe6ff;margin:6px 0 0;">
+      Emisor (issuerName) + firma on-chain (issuer wallet) + destinatario (reseller) + docHash
+    </p>
   </header>
 
   <div class="container">
@@ -131,6 +136,7 @@
       <button id="connectButton">Conectar</button>
       <p id="account"></p>
       <p id="network"></p>
+      <p id="issuerInfo" class="muted"></p>
       <p class="muted" style="margin-top:8px;">
         Tip: la app fuerza Sepolia automáticamente.
       </p>
@@ -143,13 +149,20 @@
       <button id="hashButton">Calcular Hash</button>
       <p id="fileHash"></p>
       <p class="muted" id="fileName"></p>
+      <p class="muted" style="margin-top:8px;">
+        El docHash se usa para emitir/verificar el certificado.
+      </p>
     </div>
 
-    <!-- 3️⃣ Acciones -->
+    <!-- 3️⃣ Acciones (Certificado real) -->
     <div class="card">
-      <h3>⚙️ Acciones Blockchain</h3>
-      <button id="verifyButton">Verificar Documento</button>
-      <button id="registerButton">Registrar Documento</button>
+      <h3>✅ Certificado Real</h3>
+
+      <input id="resellerInput" placeholder="Reseller wallet (0x...)" />
+      <input id="partnerIdInput" placeholder="Partner ID (texto) ej: RESELLER-123" />
+
+      <button id="issueButton">Emitir Certificado</button>
+      <button id="verifyButton" class="secondary">Verificar docHash</button>
 
       <!-- ✅ TX Hash + botón Etherscan -->
       <div id="txPanel" class="txbox" style="display:none;">
@@ -162,13 +175,15 @@
       <p id="status"></p>
     </div>
 
-    <!-- 4️⃣ Historial -->
+    <!-- 4️⃣ Historial On-chain -->
     <div class="card">
-      <h3>🗂️ Historial de Documentos Registrados</h3>
-      <p class="muted">Se guarda en este navegador (localStorage).</p>
+      <h3>🗂️ Historial On‑Chain (Eventos)</h3>
+      <p class="muted">
+        Este historial viene de los event logs del contrato (auditoría real).
+      </p>
       <div id="history" class="history"></div>
       <div class="history-actions">
-        <button id="clearHistoryBtn" class="danger smallbtn">Borrar historial</button>
+        <button id="refreshHistoryBtn" class="secondary smallbtn">Refrescar</button>
       </div>
     </div>
 
@@ -176,12 +191,27 @@
 
   <script>
     // ======================
-    // Configuración del contrato
+    // ✅ TU CONTRATO V2 (YA PEGADO)
     // ======================
-    const contractAddress = "0xd2C97c29E149Dc1b1DE22Ccd248b9Fe4e7Bf9CBe";
+    const contractAddress = "0x355ba203Fd29440D4a7aB2f1dE11C3c29eECF77A";
+
+    // Header automático
+    const SEPOLIA_ADDR = (a) => `https://sepolia.etherscan.io/address/${a}`;
+    document.getElementById("contractHeader").innerText = contractAddress;
+    document.getElementById("contractLink").innerHTML =
+      ` — <a href="${SEPOLIA_ADDR(contractAddress)}" target="_blank" style="color:#dfe6ff;">Ver contrato en Etherscan</a>`;
+
+    // ======================
+    // ABI v2 (issuerName + issueCertificate + verifyDocument + eventos)
+    // ======================
     const contractABI = [
-      "function certifyDocument(bytes32 docHash) public",
-      "function verifyDocument(bytes32 docHash) public view returns (address certifier, uint256 timestamp, bool exists)"
+      "function issuer() view returns (address)",
+      "function issuerName() view returns (string)",
+      "function issueCertificate(bytes32 docHash, address reseller, bytes32 partnerId) public",
+      "function revokeCertificate(bytes32 docHash) public",
+      "function verifyDocument(bytes32 docHash) view returns (address issuerAddr, string issuerNameResult, address reseller, uint256 timestamp, bool exists, bool revoked, bytes32 partnerId)",
+      "event CertificateIssued(bytes32 indexed docHash, address indexed issuer, address indexed reseller, bytes32 partnerId, string issuerName, uint256 timestamp)",
+      "event CertificateRevoked(bytes32 indexed docHash, address indexed issuer, address indexed reseller, uint256 timestamp)"
     ];
 
     // ======================
@@ -189,24 +219,16 @@
     // ======================
     const SEPOLIA_CHAIN_ID_DEC = 11155111;
     const SEPOLIA_CHAIN_ID_HEX = "0xaa36a7";
-
-    // Etherscan Sepolia base
-    const SEPOLIA_ETHERSCAN_TX = (txHash) => `https://sepolia.etherscan.io/tx/${txHash}`;
-    const SEPOLIA_ETHERSCAN_ADDR = (addr) => `https://sepolia.etherscan.io/address/${addr}`;
+    const SEPOLIA_TX = (tx) => `https://sepolia.etherscan.io/tx/${tx}`;
 
     // ======================
     // Estado global
     // ======================
-    let provider, signer, contract, currentHash;
-    let lastTxHash = null;
+    let provider, signer, contract, readContract, currentHash;
     let currentFileName = "";
 
-    const LS_HISTORY_KEY = "doc_history_v1";
-    const LS_LAST_HASH_KEY = "last_doc_hash_v1";
-    const LS_LAST_FILE_KEY = "last_doc_file_v1";
-
     // ======================
-    // Helpers UI
+    // UI helpers
     // ======================
     function setStatus(msg, type = "") {
       const el = document.getElementById("status");
@@ -215,71 +237,14 @@
     }
 
     function showTxPanel(txHash) {
-      lastTxHash = txHash;
       document.getElementById("txHash").innerText = txHash;
       document.getElementById("txPanel").style.display = "block";
-
-      // botón directo a Etherscan
-      document.getElementById("etherscanBtn").onclick = () => {
-        window.open(SEPOLIA_ETHERSCAN_TX(txHash), "_blank");
-      };
+      document.getElementById("etherscanBtn").onclick = () => window.open(SEPOLIA_TX(txHash), "_blank");
     }
 
     function hideTxPanel() {
-      lastTxHash = null;
       document.getElementById("txPanel").style.display = "none";
       document.getElementById("txHash").innerText = "";
-    }
-
-    function loadHistory() {
-      try {
-        const raw = localStorage.getItem(LS_HISTORY_KEY);
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    }
-
-    function saveHistory(items) {
-      localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(items));
-    }
-
-    function renderHistory() {
-      const box = document.getElementById("history");
-      const items = loadHistory();
-
-      if (!items.length) {
-        box.innerHTML = `<div class="muted">Sin registros aún.</div>`;
-        return;
-      }
-
-      box.innerHTML = items.map((it, idx) => {
-        const when = new Date(it.time).toLocaleString();
-        const shortHash = it.docHash.slice(0, 10) + "..." + it.docHash.slice(-8);
-        const shortTx = it.txHash ? (it.txHash.slice(0, 10) + "..." + it.txHash.slice(-8)) : "—";
-
-        return `
-          <div class="history-item">
-            <div><b>#${items.length - idx}</b> — <span class="muted">${when}</span></div>
-            <div><b>Archivo:</b> ${it.fileName || "(sin nombre)"}</div>
-            <div><b>DocHash:</b> <span title="${it.docHash}">${shortHash}</span></div>
-            <div><b>TX:</b> <span title="${it.txHash || ""}">${shortTx}</span></div>
-            <div><b>Cuenta:</b> <span title="${it.account || ""}">${it.account ? (it.account.slice(0, 8) + "..." + it.account.slice(-6)) : "—"}</span></div>
-            <div class="history-actions">
-              ${it.txHash ? `<button class="secondary smallbtn" onclick="window.open('${SEPOLIA_ETHERSCAN_TX(it.txHash)}','_blank')">Ver TX en Etherscan</button>` : ""}
-              <button class="secondary smallbtn" onclick="navigator.clipboard.writeText('${it.docHash}')">Copiar Hash</button>
-              ${it.txHash ? `<button class="secondary smallbtn" onclick="navigator.clipboard.writeText('${it.txHash}')">Copiar TX</button>` : ""}
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function addHistoryItem(item) {
-      const items = loadHistory();
-      items.unshift(item); // lo más reciente arriba
-      saveHistory(items);
-      renderHistory();
     }
 
     // ======================
@@ -318,14 +283,13 @@
       }
     }
 
-    // Recargar si el usuario cambia red/cuenta
     if (window.ethereum) {
       window.ethereum.on("chainChanged", () => window.location.reload());
       window.ethereum.on("accountsChanged", () => window.location.reload());
     }
 
     // ======================
-    // Conectar MetaMask
+    // Conectar MetaMask + leer issuerName/issuer + historial
     // ======================
     document.getElementById("connectButton").onclick = async () => {
       if (!window.ethereum) return alert("Por favor, instala MetaMask.");
@@ -336,9 +300,10 @@
 
         provider = new ethers.providers.Web3Provider(window.ethereum);
         await provider.send("eth_requestAccounts", []);
-
         signer = provider.getSigner();
+
         contract = new ethers.Contract(contractAddress, contractABI, signer);
+        readContract = new ethers.Contract(contractAddress, contractABI, provider);
 
         const account = await signer.getAddress();
         const network = await provider.getNetwork();
@@ -351,14 +316,24 @@
           return;
         }
 
+        // ✅ Leer issuerName e issuer (getters públicos del contrato)
+        const issuerWallet = await readContract.issuer();
+        const issuerName = await readContract.issuerName();
+
+        document.getElementById("issuerInfo").innerHTML =
+          `<b>Emisor:</b> ${issuerName}<br>` +
+          `<b>Issuer wallet:</b> <a href="${SEPOLIA_ADDR(issuerWallet)}" target="_blank">${issuerWallet}</a>`;
+
         setStatus(
-          `✅ Conectado a Sepolia. Puedes ver tus transacciones aquí: <a href="${SEPOLIA_ETHERSCAN_ADDR(account)}" target="_blank">Ver address en Etherscan</a>`,
+          `✅ Conectado a Sepolia.<br>` +
+          `<b>Tu wallet:</b> <a href="${SEPOLIA_ADDR(account)}" target="_blank">Ver en Etherscan</a>`,
           "success"
         );
 
+        await refreshOnChainHistory();
       } catch (err) {
         console.error(err);
-        setStatus("❌ Error al conectar/cambiar a Sepolia: " + (err.message || "ver consola"), "error");
+        setStatus("❌ Error al conectar: " + (err.message || "ver consola"), "error");
       }
     };
 
@@ -375,136 +350,179 @@
       currentHash = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 
       currentFileName = file.name || "";
-      document.getElementById("fileHash").innerText = "Hash: " + currentHash;
+      document.getElementById("fileHash").innerText = "Hash (docHash): " + currentHash;
       document.getElementById("fileName").innerText = currentFileName ? ("Archivo: " + currentFileName) : "";
       hideTxPanel();
-
-      // Persistir último hash para evitar pérdidas por refresh
-      localStorage.setItem(LS_LAST_HASH_KEY, currentHash);
-      localStorage.setItem(LS_LAST_FILE_KEY, currentFileName);
-
-      setStatus("✅ Hash generado correctamente.", "success");
+      setStatus("✅ docHash generado.", "success");
     };
 
     // ======================
-    // Verificar documento (read-only)
+    // Emitir Certificado (issueCertificate)
     // ======================
-    document.getElementById("verifyButton").onclick = async () => {
+    document.getElementById("issueButton").onclick = async () => {
       if (!contract) return alert("Conecta MetaMask primero.");
       if (!currentHash) return alert("Calcula el hash del documento primero.");
+
+      const reseller = document.getElementById("resellerInput").value.trim();
+      const partnerText = document.getElementById("partnerIdInput").value.trim();
+
+      if (!ethers.utils.isAddress(reseller)) return alert("Reseller wallet inválida (debe ser 0x...).");
+      if (!partnerText) return alert("Partner ID (texto) es obligatorio.");
 
       try {
         const network = await provider.getNetwork();
         if (network.chainId !== SEPOLIA_CHAIN_ID_DEC) {
-          setStatus("🚫 Cambia a Sepolia para verificar.", "error");
+          setStatus("🚫 Cambia a Sepolia para emitir.", "error");
           return;
         }
 
-        const [certifier, timestamp, exists] = await contract.verifyDocument(currentHash);
-
-        if (exists) {
-          const date = new Date(timestamp.toNumber() * 1000).toLocaleString();
-          setStatus(`✅ Hash REGISTRADO ✅<br>Certificador: ${certifier}<br>Fecha: ${date}`, "success");
-        } else {
-          setStatus("⚠️ Hash NO registrado en el contrato.", "muted");
-        }
-      } catch (err) {
-        console.error(err);
-        setStatus("❌ Error al verificar documento.", "error");
-      }
-    };
-
-    // ======================
-    // Registrar documento (write)
-    // ======================
-    document.getElementById("registerButton").onclick = async () => {
-      if (!contract) return alert("Conecta MetaMask primero.");
-      if (!currentHash) return alert("Calcula el hash del documento primero.");
-
-      try {
-        const network = await provider.getNetwork();
-        if (network.chainId !== SEPOLIA_CHAIN_ID_DEC) {
-          setStatus("🚫 Cambia a Sepolia para registrar.", "error");
-          return;
-        }
-
-        setStatus("⏳ Enviando transacción...", "muted");
-
-        const tx = await contract.certifyDocument(currentHash);
-
-        // ✅ mostrar TX hash en pantalla inmediatamente
-        showTxPanel(tx.hash);
+        // partnerId bytes32 = keccak256(texto)
+        const partnerIdHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(partnerText));
 
         setStatus(
-          `⏳ Transacción enviada.<br>TX: ${tx.hash}<br>
-           Puedes verla en Sepolia Etherscan.`,
+          `⏳ Enviando certificado on-chain...<br>` +
+          `<b>Reseller:</b> ${reseller}<br>` +
+          `<b>PartnerIdHash:</b> ${partnerIdHash}`,
           "muted"
         );
 
-        // esperar confirmación
-        const receipt = await tx.wait();
-
-        const account = await signer.getAddress();
-
-        // ✅ guardar en historial
-        addHistoryItem({
-          docHash: currentHash,
-          txHash: tx.hash,
-          time: Date.now(),
-          fileName: currentFileName || localStorage.getItem(LS_LAST_FILE_KEY) || "",
-          account: account,
-          blockNumber: receipt.blockNumber
-        });
+        const tx = await contract.issueCertificate(currentHash, reseller, partnerIdHash);
+        showTxPanel(tx.hash);
 
         setStatus(
-          `✅ Documento registrado exitosamente.<br>
-           Bloque: ${receipt.blockNumber}<br>
-           TX: ${tx.hash}`,
+          `⏳ TX enviada: <a href="${SEPOLIA_TX(tx.hash)}" target="_blank">${tx.hash}</a><br>` +
+          `Valídala en Etherscan → pestaña <b>Logs</b>.`,
+          "muted"
+        );
+
+        await tx.wait();
+
+        setStatus(
+          `✅ Certificado emitido ✅<br>` +
+          `TX: <a href="${SEPOLIA_TX(tx.hash)}" target="_blank">${tx.hash}</a>`,
           "success"
         );
 
+        await refreshOnChainHistory();
       } catch (err) {
-        console.error("Error al registrar:", err);
-
-        if (err && err.code === 4001) {
-          setStatus("🚫 Transacción rechazada por el usuario.", "error");
-        } else if (err.error && err.error.message && err.error.message.includes("Solo el propietario")) {
-          setStatus("🚫 Solo el propietario puede registrar documentos.", "error");
-        } else if (err.message && err.message.includes("execution reverted")) {
-          setStatus("⚠️ El documento ya está registrado o no tienes permiso.", "error");
+        console.error(err);
+        const msg = (err?.data?.message || err?.message || "").toLowerCase();
+        if (msg.includes("only issuer")) {
+          setStatus("🚫 Tu wallet no es el issuer. Debes usar la misma wallet que pusiste como _issuer al desplegar.", "error");
+        } else if (err && err.code === 4001) {
+          setStatus("🚫 Transacción rechazada.", "error");
         } else {
-          setStatus("❌ Error al registrar documento.", "error");
+          setStatus("❌ Error al emitir: " + (err.message || "ver consola"), "error");
         }
       }
     };
 
     // ======================
-    // Historial: borrar
+    // Verificar Documento (verifyDocument)
     // ======================
-    document.getElementById("clearHistoryBtn").onclick = () => {
-      localStorage.removeItem(LS_HISTORY_KEY);
-      renderHistory();
-      setStatus("🗑️ Historial borrado.", "muted");
+    document.getElementById("verifyButton").onclick = async () => {
+      if (!readContract) return alert("Conecta MetaMask primero.");
+      if (!currentHash) return alert("Calcula el hash primero.");
+
+      try {
+        const result = await readContract.verifyDocument(currentHash);
+
+        if (!result.exists) {
+          setStatus("⚠️ No existe certificado para este docHash.", "muted");
+          return;
+        }
+
+        const date = new Date(result.timestamp.toNumber() * 1000).toLocaleString();
+        setStatus(
+          `✅ Certificado encontrado ✅<br>` +
+          `<b>issuerName:</b> ${result.issuerNameResult}<br>` +
+          `<b>issuer wallet:</b> ${result.issuerAddr}<br>` +
+          `<b>reseller:</b> ${result.reseller}<br>` +
+          `<b>fecha:</b> ${date}<br>` +
+          `<b>revocado:</b> ${result.revoked}<br>` +
+          `<b>partnerIdHash:</b> ${result.partnerId}`,
+          result.revoked ? "error" : "success"
+        );
+      } catch (err) {
+        console.error(err);
+        setStatus("❌ Error al verificar: " + (err.message || "ver consola"), "error");
+      }
     };
 
     // ======================
-    // On load: restaurar hash y render historial
+    // Historial On-chain (eventos)
     // ======================
-    window.addEventListener("load", () => {
-      // restaurar último hash si existe (útil si hubo refresh)
-      const savedHash = localStorage.getItem(LS_LAST_HASH_KEY);
-      const savedFile = localStorage.getItem(LS_LAST_FILE_KEY);
+    async function refreshOnChainHistory() {
+      if (!readContract) return;
 
-      if (savedHash) {
-        currentHash = savedHash;
-        document.getElementById("fileHash").innerText = "Hash: " + currentHash;
-      }
-      if (savedFile) {
-        currentFileName = savedFile;
-        document.getElementById("fileName").innerText = savedFile ? ("Archivo: " + savedFile) : "";
-      }
+      const box = document.getElementById("history");
+      box.innerHTML = `<div class="muted">Cargando eventos on-chain...</div>`;
 
-      renderHistory();
+      try {
+        const issuedFilter = readContract.filters.CertificateIssued();
+        const revokedFilter = readContract.filters.CertificateRevoked();
+
+        // Para demo: desde bloque 0. Si crece mucho, lo optimizamos con fromBlock del deploy.
+        const issued = await readContract.queryFilter(issuedFilter, 0, "latest");
+        const revoked = await readContract.queryFilter(revokedFilter, 0, "latest");
+
+        const items = [];
+
+        issued.forEach(ev => items.push({
+          type: "ISSUED",
+          docHash: ev.args.docHash,
+          reseller: ev.args.reseller,
+          issuerName: ev.args.issuerName,
+          partnerId: ev.args.partnerId,
+          timestamp: ev.args.timestamp.toNumber(),
+          txHash: ev.transactionHash,
+          blockNumber: ev.blockNumber
+        }));
+
+        revoked.forEach(ev => items.push({
+          type: "REVOKED",
+          docHash: ev.args.docHash,
+          reseller: ev.args.reseller,
+          issuerName: null,
+          partnerId: null,
+          timestamp: ev.args.timestamp.toNumber(),
+          txHash: ev.transactionHash,
+          blockNumber: ev.blockNumber
+        }));
+
+        items.sort((a, b) => b.blockNumber - a.blockNumber);
+
+        if (!items.length) {
+          box.innerHTML = `<div class="muted">Sin eventos aún. Emite tu primer certificado.</div>`;
+          return;
+        }
+
+        box.innerHTML = items.map(it => {
+          const when = new Date(it.timestamp * 1000).toLocaleString();
+          const txUrl = SEPOLIA_TX(it.txHash);
+          return `
+            <div class="history-item">
+              <div><b>${it.type}</b> — <span class="muted">${when}</span></div>
+              <div><b>DocHash:</b> ${it.docHash}</div>
+              <div><b>Reseller:</b> ${it.reseller}</div>
+              ${it.issuerName ? `<div><b>Emisor:</b> ${it.issuerName}</div>` : ""}
+              ${it.partnerId ? `<div><b>PartnerIdHash:</b> ${it.partnerId}</div>` : ""}
+              <div class="history-actions">
+                <button class="secondary smallbtn" onclick="window.open('${txUrl}','_blank')">Ver TX en Etherscan</button>
+                <button class="secondary smallbtn" onclick="navigator.clipboard.writeText('${it.docHash}')">Copiar Hash</button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      } catch (err) {
+        console.error(err);
+        box.innerHTML = `<div class="error">Error cargando historial on-chain.</div>`;
+      }
+    }
+
+    document.getElementById("refreshHistoryBtn").addEventListener("click", async () => {
+      await refreshOnChainHistory();
+      setStatus("🔄 Historial on-chain actualizado.", "muted");
     });
   </script>
 </body>
